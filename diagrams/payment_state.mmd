@@ -1,0 +1,11 @@
+stateDiagram-v2
+    [*] --> pending
+    pending --> authorized
+    pending --> captured : direct capture
+    pending --> failed
+    authorized --> captured
+    authorized --> voided
+    captured --> refunded
+    failed --> [*]
+    voided --> [*]
+    refunded --> [*]

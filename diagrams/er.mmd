@@ -1,0 +1,70 @@
+erDiagram
+    users ||--o| sellers : "may run (1 : 0..1)"
+    users ||--o{ addresses : "has (1 : N)"
+    users ||--o{ orders : "buys (1 : N)"
+    addresses ||--o{ orders : "ship-to source (1 : N)"
+    sellers ||--o{ listings : "offers (1 : N)"
+    sellers ||--o{ orders : "fulfils (1 : N)"
+    categories ||--o{ listings : "classifies (1 : N)"
+    categories |o--o{ categories : "parent of (1 : N)"
+    orders ||--|{ order_items : "contains (1 : 1..N)"
+    listings ||--o{ order_items : "sold as (1 : N)"
+    orders }o--o{ listings : "M:N via order_items"
+    orders ||--o{ payments : "paid by (1 : N attempts)"
+    orders ||--o{ order_events : "audit trail (1 : N)"
+    payments ||--o{ payment_events : "webhooks (1 : N)"
+    order_items ||--o| reviews : "reviewed once (1 : 0..1)"
+
+    users { uuid id PK
+            text email "unique when live"
+            text full_name
+            timestamptz deleted_at }
+    sellers { uuid id PK
+              uuid user_id FK "unique"
+              text shop_name
+              char3 currency
+              enum status }
+    addresses { uuid id PK
+                uuid user_id FK
+                bool is_default "one per user" }
+    categories { uuid id PK
+                 uuid parent_id FK
+                 text slug "unique" }
+    listings { uuid id PK
+               uuid seller_id FK
+               uuid category_id FK
+               bigint price_minor
+               char3 currency
+               int stock_quantity "CHECK >= 0"
+               enum status
+               tsvector search_tsv }
+    orders { uuid id PK
+             text order_number "unique, random"
+             uuid buyer_id FK
+             uuid seller_id FK
+             enum status
+             bigint items_subtotal_minor
+             bigint shipping_fee_minor
+             bigint total_minor "generated"
+             char3 currency }
+    order_items { uuid id PK
+                  uuid order_id FK
+                  uuid listing_id FK
+                  int quantity
+                  bigint unit_price_minor "snapshot"
+                  text title_snapshot "snapshot" }
+    payments { uuid id PK
+               uuid order_id FK
+               bigint amount_minor
+               char3 currency
+               enum status }
+    reviews { uuid id PK
+              uuid order_item_id FK "unique"
+              uuid order_id FK
+              smallint rating "1..5" }
+    order_events { uuid id PK
+                   uuid order_id FK
+                   enum from_status
+                   enum to_status }
+    payment_events { text provider_event_id PK
+                     uuid payment_id FK }

@@ -1,0 +1,5 @@
+stateDiagram-v2
+    [*] --> draft
+    draft --> active : publish (seller must be active)
+    active --> paused
+    paused --> active

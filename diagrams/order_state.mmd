@@ -1,0 +1,12 @@
+stateDiagram-v2
+    [*] --> pending_payment : INSERT (only legal birth state)
+    pending_payment --> paid : payment captured
+    pending_payment --> cancelled : buyer cancels / 30 min expiry
+    paid --> shipped : seller adds tracking
+    paid --> cancelled : cancel before dispatch (refund)
+    shipped --> delivered : carrier confirms
+    delivered --> completed : buyer confirms / window closes
+    delivered --> refunded : return accepted
+    completed --> [*]
+    cancelled --> [*]
+    refunded --> [*]
