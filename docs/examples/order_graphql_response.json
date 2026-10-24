@@ -1,0 +1,22 @@
+{
+  "data": {
+    "order": {
+      "orderNumber": "DK-2C35ABD40B11",
+      "shipTo": {
+        "recipient": "Bola Adeyemi",
+        "line1": "12 Allen Avenue",
+        "city": "Lagos"
+      },
+      "items": [
+        {
+          "title": "Refurbished smartphone 128GB",
+          "quantity": 1
+        },
+        {
+          "title": "Phone case, shockproof",
+          "quantity": 2
+        }
+      ]
+    }
+  }
+}

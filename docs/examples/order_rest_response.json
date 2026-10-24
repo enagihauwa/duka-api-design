@@ -1,0 +1,77 @@
+{
+  "id": "0190a000-0000-7000-8005-000000000003",
+  "order_number": "DK-2C35ABD40B11",
+  "status": "paid",
+  "seller": {
+    "id": "0190a000-0000-7000-8001-000000000002",
+    "shop_name": "Lagos Gadgets"
+  },
+  "items": [
+    {
+      "id": "01a16fbe-3fb9-71cc-887c-7739858a0aaf",
+      "listing_id": "0190a000-0000-7000-8004-000000000003",
+      "title": "Refurbished smartphone 128GB",
+      "quantity": 1,
+      "unit_price": {
+        "amount_minor": 12500000,
+        "currency": "NGN"
+      },
+      "line_total": {
+        "amount_minor": 12500000,
+        "currency": "NGN"
+      }
+    },
+    {
+      "id": "01a16fbe-3fb9-71cc-887c-7739858a0ab0",
+      "listing_id": "0190a000-0000-7000-8004-000000000004",
+      "title": "Phone case, shockproof",
+      "quantity": 2,
+      "unit_price": {
+        "amount_minor": 350000,
+        "currency": "NGN"
+      },
+      "line_total": {
+        "amount_minor": 700000,
+        "currency": "NGN"
+      }
+    }
+  ],
+  "items_subtotal": {
+    "amount_minor": 13200000,
+    "currency": "NGN"
+  },
+  "shipping_fee": {
+    "amount_minor": 200000,
+    "currency": "NGN"
+  },
+  "total": {
+    "amount_minor": 13400000,
+    "currency": "NGN"
+  },
+  "ship_to": {
+    "recipient": "Bola Adeyemi",
+    "line1": "12 Allen Avenue",
+    "line2": null,
+    "city": "Lagos",
+    "region": "LA",
+    "postal_code": "100001",
+    "country": "NG"
+  },
+  "shipment": {
+    "carrier": null,
+    "tracking_number": null
+  },
+  "payment": {
+    "id": "0190a000-0000-7000-8006-000000000003",
+    "status": "captured"
+  },
+  "timestamps": {
+    "created_at": "2026-10-24T21:31:36Z",
+    "paid_at": "2026-10-24T21:33:02Z",
+    "shipped_at": null,
+    "delivered_at": null,
+    "completed_at": null,
+    "cancelled_at": null
+  },
+  "cancelled_by": null
+}
