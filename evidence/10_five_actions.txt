@@ -1,0 +1,104 @@
+
+=== Q1  Seller publishes a listing (draft -> active)  [A1]
+BEGIN;
+SELECT set_config('app.actor_type', 'seller', true) AS _a 
+INSERT INTO listings (id, seller_id, category_id, title, description, price_minor, currency, stock_quantity)
+VALUES ('0190a000-0000-7000-8004-0000000000f1', '0190a000-0000-7000-8001-000000000001', '0190a000-0000-7000-8003-000000000002',
+        'Adire indigo fabric', 'Hand dyed in Abeokuta', 2200000, 'NGN', 12);
+UPDATE listings SET status = 'active' WHERE id = '0190a000-0000-7000-8004-0000000000f1'
+RETURNING id, title, price_minor, currency, stock_quantity, status;
+                  id                  |        title        | price_minor | currency | stock_quantity | status 
+--------------------------------------+---------------------+-------------+----------+----------------+--------
+ 0190a000-0000-7000-8004-0000000000f1 | Adire indigo fabric |     2200000 | NGN      |             12 | active
+
+ROLLBACK;
+
+=== Q2  Buyer searches listings: keyword + price filter, ranked, page 1  [A2]
+SELECT l.id, l.title, l.price_minor, l.currency, l.rating_sum, l.rating_count,
+       ts_rank(l.search_tsv, q) AS rank
+  FROM listings l, websearch_to_tsquery('simple', 'premium lamp') q
+ WHERE l.status = 'active' AND l.deleted_at IS NULL
+   AND l.search_tsv @@ q
+   AND l.price_minor BETWEEN 100000 AND 3000000
+ ORDER BY rank DESC, l.id DESC
+ LIMIT 5;
+                  id                  |       title        | price_minor | currency | rating_sum | rating_count |    rank    
+--------------------------------------+--------------------+-------------+----------+------------+--------------+------------
+ 01a16fe1-4528-7618-aecd-f0a30efae500 | Premium lamp 74198 |     2623962 | NGN      |          2 |            1 | 0.09910322
+ 01a16fe1-4527-7e73-9596-8797f88400a6 | Premium lamp 26198 |     2511962 | NGN      |          0 |            0 | 0.09910322
+ 01a16fe1-4527-7922-bb8e-d963375d6e85 | Premium lamp 2198  |     2455962 | NGN      |          0 |            0 | 0.09910322
+ 01a16fe1-4527-77ba-8e3c-49be68c35202 | Premium lamp 50198 |     2567962 | NGN      |          0 |            0 | 0.09910322
+ 01a16fe1-4526-79d9-8edd-c229e3b7b076 | Premium lamp 38198 |     2539962 | NGN      |          0 |            0 | 0.09910322
+
+
+=== Q3  Buyer places an order: order + item; price snapshotted, stock reserved, subtotal maintained  [A3]
+BEGIN;
+SELECT set_config('app.actor_type', 'buyer', true) AS _a 
+SELECT stock_quantity AS stock_before FROM listings WHERE id = '0190a000-0000-7000-8004-000000000004';
+ stock_before 
+--------------
+           98
+
+INSERT INTO orders (id, buyer_id, seller_id, currency, shipping_fee_minor, shipping_address_id)
+VALUES ('0190a000-0000-7000-8005-0000000000f3', '0190a000-0000-7000-8000-000000000003', '0190a000-0000-7000-8001-000000000002', 'NGN', 200000, '0190a000-0000-7000-8002-000000000003');
+INSERT INTO order_items (order_id, listing_id, quantity)
+VALUES ('0190a000-0000-7000-8005-0000000000f3', '0190a000-0000-7000-8004-000000000004', 2);
+SELECT o.order_number, o.status, o.items_subtotal_minor, o.shipping_fee_minor, o.total_minor, o.currency,
+       o.seller_shop_name_snapshot, o.ship_recipient, o.ship_city,
+       (SELECT stock_quantity FROM listings WHERE id = '0190a000-0000-7000-8004-000000000004') AS stock_after
+  FROM orders o WHERE o.id = '0190a000-0000-7000-8005-0000000000f3';
+  order_number   |     status      | items_subtotal_minor | shipping_fee_minor | total_minor | currency | seller_shop_name_snapshot | ship_recipient | ship_city | stock_after 
+-----------------+-----------------+----------------------+--------------------+-------------+----------+---------------------------+----------------+-----------+-------------
+ DK-C29D90438F3C | pending_payment |               700000 |             200000 |      900000 | NGN      | Lagos Gadgets             | Bola Adeyemi   | Lagos     |          96
+
+SELECT title_snapshot, quantity, unit_price_minor, line_total_minor
+  FROM order_items WHERE order_id = '0190a000-0000-7000-8005-0000000000f3';
+     title_snapshot     | quantity | unit_price_minor | line_total_minor 
+------------------------+----------+------------------+------------------
+ Phone case, shockproof |        2 |           350000 |           700000
+
+ROLLBACK;
+
+=== Q4  Buyer pays: payment pending -> authorized -> captured, then order pending_payment -> paid  [A4]
+BEGIN;
+SELECT set_config('app.actor_type', 'system', true) AS _a 
+INSERT INTO payments (id, order_id, currency, amount_minor, provider)
+VALUES ('0190a000-0000-7000-8006-0000000000f4', '0190a000-0000-7000-8005-000000000002', 'NGN', 3000000, 'paystack');
+UPDATE payments SET status = 'authorized', provider_reference = 'PSK_F4' WHERE id = '0190a000-0000-7000-8006-0000000000f4';
+UPDATE payments SET status = 'captured' WHERE id = '0190a000-0000-7000-8006-0000000000f4';
+UPDATE orders SET status = 'paid' WHERE id = '0190a000-0000-7000-8005-000000000002'
+RETURNING order_number, status, total_minor, paid_at IS NOT NULL AS has_paid_at;
+  order_number   | status | total_minor | has_paid_at 
+-----------------+--------+-------------+-------------
+ DK-3534E3E41CFA | paid   |     3000000 | t
+
+SELECT from_status, to_status, actor_type FROM order_events
+ WHERE order_id = '0190a000-0000-7000-8005-000000000002' ORDER BY created_at, id;
+   from_status   |    to_status    | actor_type 
+-----------------+-----------------+------------
+                 | pending_payment | buyer
+ pending_payment | paid            | system
+
+ROLLBACK;
+
+=== Q5  Seller works the fulfilment queue, then ships the oldest paid order  [A5]
+SELECT o.id, o.order_number, o.created_at::date AS ordered, o.total_minor, o.currency, o.ship_city,
+       (SELECT count(*) FROM order_items oi WHERE oi.order_id = o.id) AS lines
+  FROM orders o
+ WHERE o.seller_id = '0190a000-0000-7000-8001-000000000002' AND o.status = 'paid'
+ ORDER BY o.created_at, o.id
+ LIMIT 20;
+                  id                  |  order_number   |  ordered   | total_minor | currency | ship_city | lines 
+--------------------------------------+-----------------+------------+-------------+----------+-----------+-------
+ 0190a000-0000-7000-8005-000000000003 | DK-48211856589B | 2026-10-24 |    13400000 | NGN      | Lagos     |     2
+
+BEGIN;
+SELECT set_config('app.actor_type', 'seller', true) AS _a 
+UPDATE orders SET status = 'shipped', carrier = 'GIGL', tracking_number = 'GIG999'
+ WHERE id = '0190a000-0000-7000-8005-000000000003' AND seller_id = '0190a000-0000-7000-8001-000000000002' AND status = 'paid'
+RETURNING order_number, status, carrier, tracking_number, shipped_at IS NOT NULL AS has_shipped_at;
+  order_number   | status  | carrier | tracking_number | has_shipped_at 
+-----------------+---------+---------+-----------------+----------------
+ DK-48211856589B | shipped | GIGL    | GIG999          | t
+
+ROLLBACK;

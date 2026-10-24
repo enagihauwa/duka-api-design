@@ -1,0 +1,192 @@
+=== tables
+                List of tables
+ Schema |       Name        | Type  |  Owner   
+--------+-------------------+-------+----------
+ public | addresses         | table | postgres
+ public | categories        | table | postgres
+ public | idempotency_keys  | table | postgres
+ public | listings          | table | postgres
+ public | order_events      | table | postgres
+ public | order_items       | table | postgres
+ public | orders            | table | postgres
+ public | payment_events    | table | postgres
+ public | payments          | table | postgres
+ public | reviews           | table | postgres
+ public | sellers           | table | postgres
+ public | state_transitions | table | postgres
+ public | users             | table | postgres
+
+
+=== constraints (PK / UNIQUE / FK / CHECK), excluding NOT NULL
+       table       |    kind     |                 name                 |                                                                                                                                definition                                                                                                                                 
+-------------------+-------------+--------------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ addresses         | CHECK       | addresses_country_check              | CHECK ((country ~ '^[A-Z]{2}$'::text))
+ addresses         | CHECK       | addresses_line1_check                | CHECK (((char_length(line1) >= 1) AND (char_length(line1) <= 200)))
+ addresses         | CHECK       | addresses_phone_e164_check           | CHECK (((phone_e164 IS NULL) OR (phone_e164 ~ '^\+[1-9][0-9]{7,14}$'::text)))
+ addresses         | CHECK       | addresses_recipient_name_check       | CHECK (((char_length(recipient_name) >= 1) AND (char_length(recipient_name) <= 120)))
+ addresses         | CHECK       | addresses_timestamps_ordered         | CHECK ((updated_at >= created_at))
+ categories        | CHECK       | categories_name_check                | CHECK (((char_length(btrim(name)) >= 1) AND (char_length(btrim(name)) <= 80)))
+ categories        | CHECK       | categories_not_own_parent            | CHECK (((parent_id IS NULL) OR (parent_id <> id)))
+ categories        | CHECK       | categories_slug_check                | CHECK ((slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'::text))
+ categories        | CHECK       | categories_timestamps_ordered        | CHECK ((updated_at >= created_at))
+ idempotency_keys  | CHECK       | idempotency_keys_idem_key_check      | CHECK (((char_length(idem_key) >= 8) AND (char_length(idem_key) <= 128)))
+ listings          | CHECK       | listings_currency_check              | CHECK ((currency ~ '^[A-Z]{3}$'::text))
+ listings          | CHECK       | listings_description_check           | CHECK ((char_length(description) <= 5000))
+ listings          | CHECK       | listings_price_positive              | CHECK ((price_minor > 0))
+ listings          | CHECK       | listings_rating_aggregate_sane       | CHECK (((rating_count >= 0) AND (rating_sum >= rating_count) AND (rating_sum <= (5 * rating_count))))
+ listings          | CHECK       | listings_stock_nonneg                | CHECK ((stock_quantity >= 0))
+ listings          | CHECK       | listings_timestamps_ordered          | CHECK ((updated_at >= created_at))
+ listings          | CHECK       | listings_title_check                 | CHECK (((char_length(btrim(title)) >= 3) AND (char_length(btrim(title)) <= 140)))
+ order_items       | CHECK       | order_items_quantity_check           | CHECK (((quantity >= 1) AND (quantity <= 999)))
+ order_items       | CHECK       | order_items_timestamps_ordered       | CHECK ((updated_at >= created_at))
+ order_items       | CHECK       | order_items_unit_price_minor_check   | CHECK ((unit_price_minor > 0))
+ orders            | CHECK       | orders_cancelled_has_cancel_info     | CHECK (((status <> 'cancelled'::order_status) OR ((cancelled_at IS NOT NULL) AND (cancelled_by IS NOT NULL))))
+ orders            | CHECK       | orders_completed_has_completed_at    | CHECK (((status <> 'completed'::order_status) OR (completed_at IS NOT NULL)))
+ orders            | CHECK       | orders_delivered_has_delivered_at    | CHECK (((status <> ALL (ARRAY['delivered'::order_status, 'completed'::order_status, 'refunded'::order_status])) OR (delivered_at IS NOT NULL)))
+ orders            | CHECK       | orders_items_subtotal_minor_check    | CHECK ((items_subtotal_minor >= 0))
+ orders            | CHECK       | orders_paid_has_paid_at              | CHECK (((status = 'pending_payment'::order_status) OR (status = 'cancelled'::order_status) OR (paid_at IS NOT NULL)))
+ orders            | CHECK       | orders_shipped_has_tracking          | CHECK (((status <> ALL (ARRAY['shipped'::order_status, 'delivered'::order_status, 'completed'::order_status])) OR ((shipped_at IS NOT NULL) AND (tracking_number IS NOT NULL) AND (carrier IS NOT NULL))))
+ orders            | CHECK       | orders_shipping_fee_minor_check      | CHECK ((shipping_fee_minor >= 0))
+ orders            | CHECK       | orders_timestamps_ordered            | CHECK (((updated_at >= created_at) AND ((paid_at IS NULL) OR (paid_at >= created_at)) AND ((shipped_at IS NULL) OR (shipped_at >= paid_at)) AND ((delivered_at IS NULL) OR (delivered_at >= shipped_at)) AND ((completed_at IS NULL) OR (completed_at >= delivered_at))))
+ payments          | CHECK       | payments_amount_minor_check          | CHECK ((amount_minor > 0))
+ payments          | CHECK       | payments_captured_has_ts             | CHECK (((status <> ALL (ARRAY['captured'::payment_status, 'refunded'::payment_status])) OR (captured_at IS NOT NULL)))
+ payments          | CHECK       | payments_failed_has_code             | CHECK (((status <> 'failed'::payment_status) OR (failure_code IS NOT NULL)))
+ payments          | CHECK       | payments_timestamps_ordered          | CHECK ((updated_at >= created_at))
+ reviews           | CHECK       | reviews_body_check                   | CHECK (((body IS NULL) OR (char_length(body) <= 2000)))
+ reviews           | CHECK       | reviews_order_must_be_completed      | CHECK ((order_status = 'completed'::order_status))
+ reviews           | CHECK       | reviews_rating_range                 | CHECK (((rating >= 1) AND (rating <= 5)))
+ reviews           | CHECK       | reviews_timestamps_ordered           | CHECK ((updated_at >= created_at))
+ sellers           | CHECK       | sellers_currency_check               | CHECK ((currency ~ '^[A-Z]{3}$'::text))
+ sellers           | CHECK       | sellers_shipping_fee_nonneg          | CHECK ((flat_shipping_fee_minor >= 0))
+ sellers           | CHECK       | sellers_shop_name_check              | CHECK (((char_length(btrim(shop_name)) >= 2) AND (char_length(btrim(shop_name)) <= 80)))
+ sellers           | CHECK       | sellers_shop_slug_check              | CHECK ((shop_slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'::text))
+ sellers           | CHECK       | sellers_timestamps_ordered           | CHECK ((updated_at >= created_at))
+ state_transitions | CHECK       | state_transitions_entity_check       | CHECK ((entity = ANY (ARRAY['order'::text, 'payment'::text, 'listing'::text])))
+ state_transitions | CHECK       | state_transitions_not_self           | CHECK ((from_status <> to_status))
+ users             | CHECK       | users_email_format                   | CHECK (((email IS NULL) OR (email ~* '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$'::text)))
+ users             | CHECK       | users_phone_format                   | CHECK (((phone_e164 IS NULL) OR (phone_e164 ~ '^\+[1-9][0-9]{7,14}$'::text)))
+ users             | CHECK       | users_pii_present_unless_erased      | CHECK (((deleted_at IS NOT NULL) OR ((email IS NOT NULL) AND (full_name IS NOT NULL) AND ((char_length(btrim(full_name)) >= 1) AND (char_length(btrim(full_name)) <= 120)))))
+ users             | CHECK       | users_timestamps_ordered             | CHECK ((updated_at >= created_at))
+ addresses         | FOREIGN KEY | addresses_user_id_fkey               | FOREIGN KEY (user_id) REFERENCES users(id)
+ categories        | FOREIGN KEY | categories_parent_id_fkey            | FOREIGN KEY (parent_id) REFERENCES categories(id)
+ listings          | FOREIGN KEY | listings_category_id_fkey            | FOREIGN KEY (category_id) REFERENCES categories(id)
+ listings          | FOREIGN KEY | listings_seller_currency_fk          | FOREIGN KEY (seller_id, currency) REFERENCES sellers(id, currency)
+ order_events      | FOREIGN KEY | order_events_order_id_fkey           | FOREIGN KEY (order_id) REFERENCES orders(id)
+ order_items       | FOREIGN KEY | order_items_listing_fk               | FOREIGN KEY (listing_id, seller_id, currency) REFERENCES listings(id, seller_id, currency)
+ order_items       | FOREIGN KEY | order_items_order_fk                 | FOREIGN KEY (order_id, seller_id, currency) REFERENCES orders(id, seller_id, currency)
+ orders            | FOREIGN KEY | orders_buyer_id_fkey                 | FOREIGN KEY (buyer_id) REFERENCES users(id)
+ orders            | FOREIGN KEY | orders_seller_currency_fk            | FOREIGN KEY (seller_id, currency) REFERENCES sellers(id, currency)
+ orders            | FOREIGN KEY | orders_ship_address_belongs_to_buyer | FOREIGN KEY (shipping_address_id, buyer_id) REFERENCES addresses(id, user_id)
+ payment_events    | FOREIGN KEY | payment_events_payment_id_fkey       | FOREIGN KEY (payment_id) REFERENCES payments(id)
+ payments          | FOREIGN KEY | payments_order_currency_fk           | FOREIGN KEY (order_id, currency) REFERENCES orders(id, currency)
+ reviews           | FOREIGN KEY | reviews_item_fk                      | FOREIGN KEY (order_item_id, order_id, listing_id) REFERENCES order_items(id, order_id, listing_id)
+ reviews           | FOREIGN KEY | reviews_order_completed_fk           | FOREIGN KEY (order_id, buyer_id, order_status) REFERENCES orders(id, buyer_id, status)
+ sellers           | FOREIGN KEY | sellers_user_id_fkey                 | FOREIGN KEY (user_id) REFERENCES users(id)
+ addresses         | PRIMARY KEY | addresses_pkey                       | PRIMARY KEY (id)
+ categories        | PRIMARY KEY | categories_pkey                      | PRIMARY KEY (id)
+ idempotency_keys  | PRIMARY KEY | idempotency_keys_pkey                | PRIMARY KEY (principal_id, idem_key)
+ listings          | PRIMARY KEY | listings_pkey                        | PRIMARY KEY (id)
+ order_events      | PRIMARY KEY | order_events_pkey                    | PRIMARY KEY (id)
+ order_items       | PRIMARY KEY | order_items_pkey                     | PRIMARY KEY (id)
+ orders            | PRIMARY KEY | orders_pkey                          | PRIMARY KEY (id)
+ payment_events    | PRIMARY KEY | payment_events_pkey                  | PRIMARY KEY (provider_event_id)
+ payments          | PRIMARY KEY | payments_pkey                        | PRIMARY KEY (id)
+ reviews           | PRIMARY KEY | reviews_pkey                         | PRIMARY KEY (id)
+ sellers           | PRIMARY KEY | sellers_pkey                         | PRIMARY KEY (id)
+ state_transitions | PRIMARY KEY | state_transitions_pkey               | PRIMARY KEY (entity, from_status, to_status)
+ users             | PRIMARY KEY | users_pkey                           | PRIMARY KEY (id)
+ addresses         | UNIQUE      | addresses_id_user_uq                 | UNIQUE (id, user_id)
+ categories        | UNIQUE      | categories_slug_key                  | UNIQUE (slug)
+ listings          | UNIQUE      | listings_id_seller_currency_uq       | UNIQUE (id, seller_id, currency)
+ order_items       | UNIQUE      | order_items_id_order_listing_uq      | UNIQUE (id, order_id, listing_id)
+ order_items       | UNIQUE      | order_items_one_line_per_listing     | UNIQUE (order_id, listing_id)
+ orders            | UNIQUE      | orders_id_buyer_status_uq            | UNIQUE (id, buyer_id, status)
+ orders            | UNIQUE      | orders_id_currency_uq                | UNIQUE (id, currency)
+ orders            | UNIQUE      | orders_id_seller_currency_uq         | UNIQUE (id, seller_id, currency)
+ orders            | UNIQUE      | orders_order_number_key              | UNIQUE (order_number)
+ reviews           | UNIQUE      | reviews_one_per_item                 | UNIQUE (order_item_id)
+ sellers           | UNIQUE      | sellers_id_currency_uq               | UNIQUE (id, currency)
+ sellers           | UNIQUE      | sellers_user_id_key                  | UNIQUE (user_id)
+
+
+=== indexes
+       table       |               name               |                                                                                                 definition                                                                                                  
+-------------------+----------------------------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ addresses         | addresses_id_user_uq             | CREATE UNIQUE INDEX addresses_id_user_uq ON public.addresses USING btree (id, user_id)
+ addresses         | addresses_one_default_per_user   | CREATE UNIQUE INDEX addresses_one_default_per_user ON public.addresses USING btree (user_id) WHERE (is_default AND (deleted_at IS NULL))
+ addresses         | addresses_pkey                   | CREATE UNIQUE INDEX addresses_pkey ON public.addresses USING btree (id)
+ addresses         | addresses_user_live_idx          | CREATE INDEX addresses_user_live_idx ON public.addresses USING btree (user_id) WHERE (deleted_at IS NULL)
+ categories        | categories_pkey                  | CREATE UNIQUE INDEX categories_pkey ON public.categories USING btree (id)
+ categories        | categories_slug_key              | CREATE UNIQUE INDEX categories_slug_key ON public.categories USING btree (slug)
+ idempotency_keys  | idempotency_keys_expiry_idx      | CREATE INDEX idempotency_keys_expiry_idx ON public.idempotency_keys USING btree (expires_at)
+ idempotency_keys  | idempotency_keys_pkey            | CREATE UNIQUE INDEX idempotency_keys_pkey ON public.idempotency_keys USING btree (principal_id, idem_key)
+ listings          | listings_browse_new_idx          | CREATE INDEX listings_browse_new_idx ON public.listings USING btree (category_id, created_at DESC, id DESC) WHERE ((status = 'active'::listing_status) AND (deleted_at IS NULL))
+ listings          | listings_browse_price_idx        | CREATE INDEX listings_browse_price_idx ON public.listings USING btree (category_id, price_minor, id) WHERE ((status = 'active'::listing_status) AND (deleted_at IS NULL))
+ listings          | listings_id_seller_currency_uq   | CREATE UNIQUE INDEX listings_id_seller_currency_uq ON public.listings USING btree (id, seller_id, currency)
+ listings          | listings_pkey                    | CREATE UNIQUE INDEX listings_pkey ON public.listings USING btree (id)
+ listings          | listings_search_gin              | CREATE INDEX listings_search_gin ON public.listings USING gin (search_tsv) WHERE ((status = 'active'::listing_status) AND (deleted_at IS NULL))
+ listings          | listings_seller_idx              | CREATE INDEX listings_seller_idx ON public.listings USING btree (seller_id, created_at DESC, id DESC) WHERE (deleted_at IS NULL)
+ order_events      | order_events_order_idx           | CREATE INDEX order_events_order_idx ON public.order_events USING btree (order_id, created_at)
+ order_events      | order_events_pkey                | CREATE UNIQUE INDEX order_events_pkey ON public.order_events USING btree (id)
+ order_items       | order_items_id_order_listing_uq  | CREATE UNIQUE INDEX order_items_id_order_listing_uq ON public.order_items USING btree (id, order_id, listing_id)
+ order_items       | order_items_one_line_per_listing | CREATE UNIQUE INDEX order_items_one_line_per_listing ON public.order_items USING btree (order_id, listing_id)
+ order_items       | order_items_pkey                 | CREATE UNIQUE INDEX order_items_pkey ON public.order_items USING btree (id)
+ orders            | orders_buyer_history_idx         | CREATE INDEX orders_buyer_history_idx ON public.orders USING btree (buyer_id, created_at DESC, id DESC)
+ orders            | orders_fulfilment_queue_idx      | CREATE INDEX orders_fulfilment_queue_idx ON public.orders USING btree (seller_id, created_at, id) WHERE (status = 'paid'::order_status)
+ orders            | orders_id_buyer_status_uq        | CREATE UNIQUE INDEX orders_id_buyer_status_uq ON public.orders USING btree (id, buyer_id, status)
+ orders            | orders_id_currency_uq            | CREATE UNIQUE INDEX orders_id_currency_uq ON public.orders USING btree (id, currency)
+ orders            | orders_id_seller_currency_uq     | CREATE UNIQUE INDEX orders_id_seller_currency_uq ON public.orders USING btree (id, seller_id, currency)
+ orders            | orders_order_number_key          | CREATE UNIQUE INDEX orders_order_number_key ON public.orders USING btree (order_number)
+ orders            | orders_pending_expiry_idx        | CREATE INDEX orders_pending_expiry_idx ON public.orders USING btree (created_at) WHERE (status = 'pending_payment'::order_status)
+ orders            | orders_pkey                      | CREATE UNIQUE INDEX orders_pkey ON public.orders USING btree (id)
+ orders            | orders_seller_history_idx        | CREATE INDEX orders_seller_history_idx ON public.orders USING btree (seller_id, created_at DESC, id DESC)
+ payment_events    | payment_events_payment_idx       | CREATE INDEX payment_events_payment_idx ON public.payment_events USING btree (payment_id)
+ payment_events    | payment_events_pkey              | CREATE UNIQUE INDEX payment_events_pkey ON public.payment_events USING btree (provider_event_id)
+ payments          | payments_one_live_per_order      | CREATE UNIQUE INDEX payments_one_live_per_order ON public.payments USING btree (order_id) WHERE (status = ANY (ARRAY['pending'::payment_status, 'authorized'::payment_status, 'captured'::payment_status]))
+ payments          | payments_order_idx               | CREATE INDEX payments_order_idx ON public.payments USING btree (order_id, created_at)
+ payments          | payments_pkey                    | CREATE UNIQUE INDEX payments_pkey ON public.payments USING btree (id)
+ payments          | payments_provider_ref_uq         | CREATE UNIQUE INDEX payments_provider_ref_uq ON public.payments USING btree (provider, provider_reference) WHERE (provider_reference IS NOT NULL)
+ reviews           | reviews_listing_idx              | CREATE INDEX reviews_listing_idx ON public.reviews USING btree (listing_id, created_at DESC, id DESC) WHERE (deleted_at IS NULL)
+ reviews           | reviews_one_per_item             | CREATE UNIQUE INDEX reviews_one_per_item ON public.reviews USING btree (order_item_id)
+ reviews           | reviews_pkey                     | CREATE UNIQUE INDEX reviews_pkey ON public.reviews USING btree (id)
+ sellers           | sellers_id_currency_uq           | CREATE UNIQUE INDEX sellers_id_currency_uq ON public.sellers USING btree (id, currency)
+ sellers           | sellers_pkey                     | CREATE UNIQUE INDEX sellers_pkey ON public.sellers USING btree (id)
+ sellers           | sellers_slug_live_uq             | CREATE UNIQUE INDEX sellers_slug_live_uq ON public.sellers USING btree (shop_slug) WHERE (deleted_at IS NULL)
+ sellers           | sellers_user_id_key              | CREATE UNIQUE INDEX sellers_user_id_key ON public.sellers USING btree (user_id)
+ state_transitions | state_transitions_pkey           | CREATE UNIQUE INDEX state_transitions_pkey ON public.state_transitions USING btree (entity, from_status, to_status)
+ users             | users_email_live_uq              | CREATE UNIQUE INDEX users_email_live_uq ON public.users USING btree (lower(email)) WHERE (deleted_at IS NULL)
+ users             | users_pkey                       | CREATE UNIQUE INDEX users_pkey ON public.users USING btree (id)
+
+
+=== triggers
+    table     |       trigger_name       | event  | timing 
+--------------+--------------------------+--------+--------
+ addresses    | addresses_updated_at     | UPDATE | BEFORE
+ categories   | categories_updated_at    | UPDATE | BEFORE
+ listings     | listings_10_initial      | INSERT | BEFORE
+ listings     | listings_20_guard        | INSERT | BEFORE
+ listings     | listings_20_guard        | UPDATE | BEFORE
+ listings     | listings_90_updated_at   | UPDATE | BEFORE
+ order_events | order_events_append_only | DELETE | BEFORE
+ order_events | order_events_append_only | UPDATE | BEFORE
+ order_items  | order_items_10_guard     | DELETE | BEFORE
+ order_items  | order_items_10_guard     | INSERT | BEFORE
+ order_items  | order_items_10_guard     | UPDATE | BEFORE
+ order_items  | order_items_20_reserve   | INSERT | AFTER
+ orders       | orders_10_initial        | INSERT | BEFORE
+ orders       | orders_20_before_insert  | INSERT | BEFORE
+ orders       | orders_20_before_update  | UPDATE | BEFORE
+ orders       | orders_30_after_change   | INSERT | AFTER
+ orders       | orders_30_after_change   | UPDATE | AFTER
+ orders       | orders_90_updated_at     | UPDATE | BEFORE
+ payments     | payments_10_initial      | INSERT | BEFORE
+ payments     | payments_20_guard        | INSERT | BEFORE
+ payments     | payments_20_guard        | UPDATE | BEFORE
+ payments     | payments_90_updated_at   | UPDATE | BEFORE
+ reviews      | reviews_10_guard         | UPDATE | BEFORE
+ reviews      | reviews_20_aggregate     | INSERT | AFTER
+ reviews      | reviews_20_aggregate     | UPDATE | AFTER
+ reviews      | reviews_90_updated_at    | UPDATE | BEFORE
+ sellers      | sellers_updated_at       | UPDATE | BEFORE
+ users        | users_updated_at         | UPDATE | BEFORE
+

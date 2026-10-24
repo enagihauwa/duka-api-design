@@ -1,0 +1,27 @@
+BEGIN;
+SELECT set_config('app.actor_type', 'system', true) AS _a 
+INSERT INTO payments (id, order_id, currency, amount_minor, provider, provider_reference)
+VALUES ('0190a000-0000-7000-8006-0000000000b1', '0190a000-0000-7000-8005-000000000002', 'NGN', 3000000, 'paystack', 'PSK_LATE');
+UPDATE payments SET status = 'authorized' WHERE id = '0190a000-0000-7000-8006-0000000000b1';
+--- expiry job cancels the unpaid order (stock is released)
+UPDATE orders SET status = 'cancelled', cancelled_by = 'system' WHERE id = '0190a000-0000-7000-8005-000000000002';
+--- late webhook: provider says captured. The payment row records the truth
+UPDATE payments SET status = 'captured' WHERE id = '0190a000-0000-7000-8006-0000000000b1';
+--- ...but the order cannot be resurrected
+SAVEPOINT s;
+UPDATE orders SET status = 'paid' WHERE id = '0190a000-0000-7000-8005-000000000002';
+psql:proof/50_late_capture.sql:19: ERROR:  DK001: illegal order transition: cancelled -> paid
+CONTEXT:  PL/pgSQL function assert_transition(text,text,text) line 6 at RAISE
+SQL statement "SELECT assert_transition('order', OLD.status::text, NEW.status::text)"
+PL/pgSQL function orders_before_update() line 14 at PERFORM
+LOCATION:  exec_stmt_raise, pl_exec.c:3923
+ROLLBACK TO SAVEPOINT s;
+--- reconciliation query: cancelled orders that hold captured money -> refund queue
+SELECT o.order_number, o.status AS order_status, p.status AS payment_status, p.amount_minor, p.currency
+  FROM orders o JOIN payments p ON p.order_id = o.id
+ WHERE o.status = 'cancelled' AND p.status = 'captured';
+  order_number   | order_status | payment_status | amount_minor | currency 
+-----------------+--------------+----------------+--------------+----------
+ DK-3534E3E41CFA | cancelled    | captured       |      3000000 | NGN
+
+ROLLBACK;

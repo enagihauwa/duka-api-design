@@ -1,0 +1,61 @@
+Time: 0.212 ms
+ setseed 
+---------
+ 
+(1 row)
+
+Time: 0.527 ms
+Time: 9.184 ms
+Time: 0.392 ms
+Time: 0.282 ms
+Time: 0.435 ms
+Time: 0.194 ms
+Time: 352.117 ms
+Time: 90.448 ms
+Time: 22.724 ms
+Time: 8.043 ms
+Time: 1.450 ms
+Time: 1.994 ms
+Time: 28932.770 ms (00:28.933)
+Time: 1087.345 ms (00:01.087)
+Time: 174.227 ms
+Time: 1016.820 ms (00:01.017)
+Time: 4393.050 ms (00:04.393)
+Time: 48935.179 ms (00:48.935)
+Time: 25272.000 ms (00:25.272)
+Time: 23736.661 ms (00:23.737)
+Time: 9347.052 ms (00:09.347)
+Time: 21759.271 ms (00:21.759)
+Time: 6.455 ms
+Time: 1.378 ms
+Time: 1.940 ms
+Time: 1.081 ms
+Time: 1.890 ms
+Time: 7.046 ms
+Time: 8143.254 ms (00:08.143)
+--- audit: orders whose subtotal != sum(items)  (expect 0)
+ count 
+-------
+     0
+(1 row)
+
+Time: 2431.747 ms (00:02.432)
+--- audit: listings whose rating cache != live reviews  (expect 0)
+ count 
+-------
+     0
+(1 row)
+
+Time: 1765.884 ms (00:01.766)
+--- row counts
+      t      | count  
+-------------+--------
+ users       |  20005
+ reviews     |  71746
+ payments    | 240002
+ order_items | 300006
+ orders      | 300004
+ listings    | 200005
+(6 rows)
+
+Time: 447.065 ms

@@ -1,0 +1,50 @@
+
+=== Refused: Bola has an open order (paid, not yet shipped)
+BEGIN;
+SELECT anonymise_user('0190a000-0000-7000-8000-000000000003');
+psql:proof/40_erasure.sql:10: ERROR:  DK003: user 0190a000-0000-7000-8000-000000000003 has open orders; erasure refused
+CONTEXT:  PL/pgSQL function anonymise_user(uuid) line 8 at RAISE
+LOCATION:  exec_stmt_raise, pl_exec.c:3923
+ROLLBACK;
+
+=== Allowed: Efe has no open orders. Give Efe a completed order first, then erase.
+BEGIN;
+SELECT set_config('app.actor_type', 'system', true) AS _a 
+INSERT INTO orders (id, buyer_id, seller_id, currency, shipping_fee_minor, shipping_address_id)
+VALUES ('0190a000-0000-7000-8005-0000000000e1', '0190a000-0000-7000-8000-000000000005',
+        '0190a000-0000-7000-8001-000000000001', 'NGN', 150000, '0190a000-0000-7000-8002-000000000005');
+INSERT INTO order_items (order_id, listing_id, quantity)
+VALUES ('0190a000-0000-7000-8005-0000000000e1', '0190a000-0000-7000-8004-000000000002', 1);
+INSERT INTO payments (id, order_id, currency, amount_minor, provider)
+VALUES ('0190a000-0000-7000-8006-0000000000e1', '0190a000-0000-7000-8005-0000000000e1', 'NGN', 1950000, 'paystack');
+UPDATE payments SET status = 'captured' WHERE id = '0190a000-0000-7000-8006-0000000000e1';
+UPDATE orders SET status = 'paid' WHERE id = '0190a000-0000-7000-8005-0000000000e1';
+UPDATE orders SET status = 'shipped', carrier = 'GIGL', tracking_number = 'E1' WHERE id = '0190a000-0000-7000-8005-0000000000e1';
+UPDATE orders SET status = 'delivered' WHERE id = '0190a000-0000-7000-8005-0000000000e1';
+UPDATE orders SET status = 'completed' WHERE id = '0190a000-0000-7000-8005-0000000000e1';
+--- before
+SELECT u.email, u.full_name, o.order_number, o.total_minor, o.ship_recipient, o.ship_line1
+  FROM users u JOIN orders o ON o.buyer_id = u.id WHERE u.id = '0190a000-0000-7000-8000-000000000005';
+      email      | full_name |  order_number   | total_minor | ship_recipient | ship_line1  
+-----------------+-----------+-----------------+-------------+----------------+-------------
+ efe@example.com | Efe Umeh  | DK-E282EADA45F0 |     1950000 | Efe Umeh       | 9 Ring Road
+
+SELECT anonymise_user('0190a000-0000-7000-8000-000000000005');
+ anonymise_user 
+----------------
+ 
+
+--- after: person gone, money and order history intact
+SELECT u.email, u.full_name, u.deleted_at IS NOT NULL AS soft_deleted, o.order_number, o.total_minor, o.ship_recipient, o.ship_line1,
+       (SELECT status FROM payments p WHERE p.order_id = o.id) AS payment_status
+  FROM users u JOIN orders o ON o.buyer_id = u.id WHERE u.id = '0190a000-0000-7000-8000-000000000005';
+ email | full_name | soft_deleted |  order_number   | total_minor | ship_recipient | ship_line1 | payment_status 
+-------+-----------+--------------+-----------------+-------------+----------------+------------+----------------
+       |           | t            | DK-E282EADA45F0 |     1950000 | [erased]       | [erased]   | captured
+
+--- and the erased order is still read-only
+UPDATE orders SET tracking_number = 'tamper' WHERE id = '0190a000-0000-7000-8005-0000000000e1';
+psql:proof/40_erasure.sql:39: ERROR:  DK002: order 0190a000-0000-7000-8005-0000000000e1 is completed and is read-only
+CONTEXT:  PL/pgSQL function orders_before_update() line 29 at RAISE
+LOCATION:  exec_stmt_raise, pl_exec.c:3923
+ROLLBACK;

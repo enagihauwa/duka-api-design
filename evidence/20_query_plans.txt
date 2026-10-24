@@ -1,0 +1,172 @@
+SELECT seller_id AS busy_seller FROM orders WHERE status = 'paid' GROUP BY seller_id ORDER BY count(*) DESC, seller_id LIMIT 1 
+SELECT buyer_id  AS busy_buyer  FROM orders GROUP BY buyer_id ORDER BY count(*) DESC LIMIT 1 
+SELECT id AS some_cat FROM categories WHERE slug = 'cat-7' 
+
+######## PLAN 1 (heaviest): keyword search + price filter, ranked ########
+EXPLAIN (ANALYZE, BUFFERS, COSTS OFF, TIMING OFF, SUMMARY ON)
+SELECT l.id, l.title, l.price_minor, l.currency, ts_rank(l.search_tsv, q) AS rank
+  FROM listings l, websearch_to_tsquery('simple', 'premium lamp') q
+ WHERE l.status = 'active' AND l.deleted_at IS NULL
+   AND l.search_tsv @@ q
+   AND l.price_minor BETWEEN 100000 AND 3000000
+ ORDER BY rank DESC, l.id DESC
+ LIMIT 20;
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual rows=20.00 loops=1)
+   Buffers: shared hit=33 read=778 written=746
+   ->  Sort (actual rows=20.00 loops=1)
+         Sort Key: (ts_rank(l.search_tsv, '''premium'' & ''lamp'''::tsquery)) DESC, l.id DESC
+         Sort Method: top-N heapsort  Memory: 30kB
+         Buffers: shared hit=33 read=778 written=746
+         ->  Bitmap Heap Scan on listings l (actual rows=478.00 loops=1)
+               Recheck Cond: ((search_tsv @@ '''premium'' & ''lamp'''::tsquery) AND (status = 'active'::listing_status) AND (deleted_at IS NULL))
+               Filter: ((price_minor >= 100000) AND (price_minor <= 3000000))
+               Rows Removed by Filter: 347
+               Heap Blocks: exact=563
+               Buffers: shared hit=30 read=778 written=746
+               ->  Bitmap Index Scan on listings_search_gin (actual rows=1120.00 loops=1)
+                     Index Cond: (search_tsv @@ '''premium'' & ''lamp'''::tsquery)
+                     Index Searches: 1
+                     Buffers: shared hit=7 read=238 written=228
+ Planning:
+   Buffers: shared hit=208 read=22 written=21
+ Planning Time: 10.182 ms
+ Execution Time: 17.521 ms
+
+
+######## PLAN 2 (heaviest): seller fulfilment queue (orders + line count) ########
+EXPLAIN (ANALYZE, BUFFERS, COSTS OFF, TIMING OFF, SUMMARY ON)
+SELECT o.id, o.order_number, o.created_at, o.total_minor, o.currency, o.ship_city,
+       (SELECT count(*) FROM order_items oi WHERE oi.order_id = o.id) AS lines
+  FROM orders o
+ WHERE o.seller_id = '01a16fe1-1e7d-7ce3-bdd5-45d9b9144e36' AND o.status = 'paid'
+ ORDER BY o.created_at, o.id
+ LIMIT 20;
+                                                        QUERY PLAN                                                        
+--------------------------------------------------------------------------------------------------------------------------
+ Limit (actual rows=20.00 loops=1)
+   Buffers: shared hit=73 read=28 written=27
+   ->  Index Scan using orders_fulfilment_queue_idx on orders o (actual rows=20.00 loops=1)
+         Index Cond: (seller_id = '01a16fe1-1e7d-7ce3-bdd5-45d9b9144e36'::uuid)
+         Index Searches: 1
+         Buffers: shared hit=73 read=28 written=27
+         SubPlan 1
+           ->  Aggregate (actual rows=1.00 loops=20)
+                 Buffers: shared hit=64 read=16 written=15
+                 ->  Index Only Scan using order_items_one_line_per_listing on order_items oi (actual rows=1.00 loops=20)
+                       Index Cond: (order_id = o.id)
+                       Heap Fetches: 20
+                       Index Searches: 20
+                       Buffers: shared hit=64 read=16 written=15
+ Planning:
+   Buffers: shared hit=83 read=3 written=3
+ Planning Time: 2.440 ms
+ Execution Time: 0.773 ms
+
+
+######## BONUS 3: buyer order history, keyset page 2 (page size 5) ########
+SELECT created_at AS cur_ts, id AS cur_id FROM orders WHERE buyer_id = '01a16fe1-1ddb-70b5-a4a3-6452dbdd8438' ORDER BY created_at DESC, id DESC OFFSET 4 LIMIT 1 
+EXPLAIN (ANALYZE, BUFFERS, COSTS OFF, TIMING OFF, SUMMARY ON)
+SELECT o.id, o.order_number, o.status, o.total_minor, o.currency, o.created_at
+  FROM orders o
+ WHERE o.buyer_id = '01a16fe1-1ddb-70b5-a4a3-6452dbdd8438' AND (o.created_at, o.id) < ('2026-06-28 20:33:26.353828+01', '01a16fe1-a763-7916-af77-0001a916c671')
+ ORDER BY o.created_at DESC, o.id DESC
+ LIMIT 5;
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual rows=5.00 loops=1)
+   Buffers: shared hit=8
+   ->  Index Scan using orders_buyer_history_idx on orders o (actual rows=5.00 loops=1)
+         Index Cond: ((buyer_id = '01a16fe1-1ddb-70b5-a4a3-6452dbdd8438'::uuid) AND (ROW(created_at, id) < ROW('2026-06-28 20:33:26.353828+01'::timestamp with time zone, '01a16fe1-a763-7916-af77-0001a916c671'::uuid)))
+         Index Searches: 1
+         Buffers: shared hit=8
+ Planning Time: 0.235 ms
+ Execution Time: 0.067 ms
+
+
+######## BONUS 4: browse a category, cheapest first ########
+EXPLAIN (ANALYZE, BUFFERS, COSTS OFF, TIMING OFF, SUMMARY ON)
+SELECT l.id, l.title, l.price_minor, l.currency
+  FROM listings l
+ WHERE l.category_id = '01a16fe1-1e98-74ca-b419-e16c69cd61ef' AND l.status = 'active' AND l.deleted_at IS NULL
+ ORDER BY l.price_minor, l.id
+ LIMIT 20;
+                                         QUERY PLAN                                         
+--------------------------------------------------------------------------------------------
+ Limit (actual rows=20.00 loops=1)
+   Buffers: shared hit=2 read=26 written=25
+   ->  Index Scan using listings_browse_price_idx on listings l (actual rows=20.00 loops=1)
+         Index Cond: (category_id = '01a16fe1-1e98-74ca-b419-e16c69cd61ef'::uuid)
+         Index Searches: 1
+         Buffers: shared hit=2 read=26 written=25
+ Planning:
+   Buffers: shared hit=1
+ Planning Time: 0.150 ms
+ Execution Time: 0.664 ms
+
+
+######## COUNTERFACTUAL: the same two heavy queries with their index dropped (rolled back) ########
+BEGIN;
+DROP INDEX listings_search_gin;
+DROP INDEX orders_fulfilment_queue_idx;
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY ON)
+SELECT l.id, l.title, l.price_minor, ts_rank(l.search_tsv, q) AS rank
+  FROM listings l, websearch_to_tsquery('simple', 'premium lamp') q
+ WHERE l.status = 'active' AND l.deleted_at IS NULL AND l.search_tsv @@ q
+   AND l.price_minor BETWEEN 100000 AND 3000000
+ ORDER BY rank DESC, l.id DESC LIMIT 20;
+                                                                                                QUERY PLAN                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual rows=20.00 loops=1)
+   Buffers: shared hit=763 read=15082
+   ->  Gather Merge (actual rows=20.00 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=763 read=15082
+         ->  Sort (actual rows=19.00 loops=3)
+               Sort Key: (ts_rank(l.search_tsv, '''premium'' & ''lamp'''::tsquery)) DESC, l.id DESC
+               Sort Method: top-N heapsort  Memory: 30kB
+               Buffers: shared hit=763 read=15082
+               Worker 0:  Sort Method: quicksort  Memory: 28kB
+               Worker 1:  Sort Method: quicksort  Memory: 29kB
+               ->  Parallel Seq Scan on listings l (actual rows=159.33 loops=3)
+                     Filter: ((deleted_at IS NULL) AND (search_tsv @@ '''premium'' & ''lamp'''::tsquery) AND (price_minor >= 100000) AND (price_minor <= 3000000) AND (status = 'active'::listing_status))
+                     Rows Removed by Filter: 66509
+                     Buffers: shared hit=672 read=15081
+ Planning:
+   Buffers: shared hit=15
+ Planning Time: 1.548 ms
+ Execution Time: 154.525 ms
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY ON)
+SELECT o.id, o.order_number, o.created_at, o.total_minor, o.currency, o.ship_city,
+       (SELECT count(*) FROM order_items oi WHERE oi.order_id = o.id) AS lines
+  FROM orders o
+ WHERE o.seller_id = '01a16fe1-1e7d-7ce3-bdd5-45d9b9144e36' AND o.status = 'paid'
+ ORDER BY o.created_at, o.id
+ LIMIT 20;
+                                                        QUERY PLAN                                                        
+--------------------------------------------------------------------------------------------------------------------------
+ Limit (actual rows=20.00 loops=1)
+   Buffers: shared hit=58389 read=613
+   ->  Index Scan Backward using orders_seller_history_idx on orders o (actual rows=20.00 loops=1)
+         Index Cond: (seller_id = '01a16fe1-1e7d-7ce3-bdd5-45d9b9144e36'::uuid)
+         Filter: (status = 'paid'::order_status)
+         Rows Removed by Filter: 58362
+         Index Searches: 1
+         Buffers: shared hit=58389 read=613
+         SubPlan 1
+           ->  Aggregate (actual rows=1.00 loops=20)
+                 Buffers: shared hit=81
+                 ->  Index Only Scan using order_items_one_line_per_listing on order_items oi (actual rows=1.00 loops=20)
+                       Index Cond: (order_id = o.id)
+                       Heap Fetches: 20
+                       Index Searches: 20
+                       Buffers: shared hit=81
+ Planning:
+   Buffers: shared hit=4
+ Planning Time: 2.846 ms
+ Execution Time: 83.249 ms
+
+ROLLBACK;

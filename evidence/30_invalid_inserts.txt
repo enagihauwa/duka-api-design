@@ -1,0 +1,207 @@
+
+################ REQUIRED 1: oversell. Bluetooth speaker has stock 0; order one anyway ################
+SELECT title, stock_quantity FROM listings WHERE id = '0190a000-0000-7000-8004-000000000005';
+       title       | stock_quantity 
+-------------------+----------------
+ Bluetooth speaker |              0
+
+BEGIN;
+INSERT INTO orders (id, buyer_id, seller_id, currency, shipping_fee_minor, shipping_address_id)
+VALUES ('0190a000-0000-7000-8005-0000000000a1', '0190a000-0000-7000-8000-000000000003',
+        '0190a000-0000-7000-8001-000000000002', 'NGN', 0, '0190a000-0000-7000-8002-000000000003');
+INSERT INTO order_items (order_id, listing_id, quantity)
+VALUES ('0190a000-0000-7000-8005-0000000000a1', '0190a000-0000-7000-8004-000000000005', 1);
+psql:proof/30_invalid_inserts.sql:16: ERROR:  23514: new row for relation "listings" violates check constraint "listings_stock_nonneg"
+DETAIL:  Failing row contains (0190a000-0000-7000-8004-000000000005, 0190a000-0000-7000-8001-000000000002, 0190a000-0000-7000-8003-000000000003, Bluetooth speaker, Waterproof, 12 hour battery, 2800000, NGN, -1, active, 0, 0, '12':4 'battery':6 'bluetooth':1 'hour':5 'speaker':2 'waterproo..., 2026-10-24 22:46:26.215519+01, 2026-10-24 22:49:41.388149+01, null).
+CONTEXT:  SQL statement "UPDATE listings SET stock_quantity = stock_quantity - NEW.quantity WHERE id = NEW.listing_id"
+PL/pgSQL function order_items_after_insert() line 3 at SQL statement
+SCHEMA NAME:  public
+TABLE NAME:  listings
+CONSTRAINT NAME:  listings_stock_nonneg
+LOCATION:  ExecConstraints, execMain.c:2081
+ROLLBACK;
+
+################ REQUIRED 2: a review for an order that is not completed (order is only paid) ################
+BEGIN;
+INSERT INTO reviews (order_id, order_item_id, listing_id, buyer_id, rating, body)
+SELECT oi.order_id, oi.id, oi.listing_id, '0190a000-0000-7000-8000-000000000003', 4, 'too early'
+  FROM order_items oi
+ WHERE oi.order_id = '0190a000-0000-7000-8005-000000000003'
+   AND oi.listing_id = '0190a000-0000-7000-8004-000000000003';
+psql:proof/30_invalid_inserts.sql:26: ERROR:  23503: insert or update on table "reviews" violates foreign key constraint "reviews_order_completed_fk"
+DETAIL:  Key (order_id, buyer_id, order_status)=(0190a000-0000-7000-8005-000000000003, 0190a000-0000-7000-8000-000000000003, completed) is not present in table "orders".
+SCHEMA NAME:  public
+TABLE NAME:  reviews
+CONSTRAINT NAME:  reviews_order_completed_fk
+LOCATION:  ri_ReportViolation, ri_triggers.c:2783
+ROLLBACK;
+
+################ REQUIRED 3: forbidden state transition. completed -> shipped ################
+SELECT order_number, status FROM orders WHERE id = '0190a000-0000-7000-8005-000000000001';
+  order_number   |  status   
+-----------------+-----------
+ DK-26B8803FD062 | completed
+
+BEGIN;
+UPDATE orders SET status = 'shipped', carrier = 'GIGL', tracking_number = 'X'
+ WHERE id = '0190a000-0000-7000-8005-000000000001';
+psql:proof/30_invalid_inserts.sql:34: ERROR:  DK001: illegal order transition: completed -> shipped
+CONTEXT:  PL/pgSQL function assert_transition(text,text,text) line 6 at RAISE
+SQL statement "SELECT assert_transition('order', OLD.status::text, NEW.status::text)"
+PL/pgSQL function orders_before_update() line 14 at PERFORM
+LOCATION:  exec_stmt_raise, pl_exec.c:3923
+ROLLBACK;
+
+################ EXTRA 4: late payment webhook cannot resurrect a cancelled order (cancelled -> paid) ################
+BEGIN;
+UPDATE orders SET status = 'paid' WHERE id = '0190a000-0000-7000-8005-000000000004';
+psql:proof/30_invalid_inserts.sql:40: ERROR:  DK001: illegal order transition: cancelled -> paid
+CONTEXT:  PL/pgSQL function assert_transition(text,text,text) line 6 at RAISE
+SQL statement "SELECT assert_transition('order', OLD.status::text, NEW.status::text)"
+PL/pgSQL function orders_before_update() line 14 at PERFORM
+LOCATION:  exec_stmt_raise, pl_exec.c:3923
+ROLLBACK;
+
+################ EXTRA 5: a shipped order cannot be cancelled (goods are in transit) ################
+BEGIN;
+UPDATE orders SET status = 'cancelled', cancelled_by = 'seller'
+ WHERE id = (SELECT id FROM orders WHERE status = 'shipped' LIMIT 1);
+psql:proof/30_invalid_inserts.sql:47: ERROR:  DK001: illegal order transition: shipped -> cancelled
+CONTEXT:  PL/pgSQL function assert_transition(text,text,text) line 6 at RAISE
+SQL statement "SELECT assert_transition('order', OLD.status::text, NEW.status::text)"
+PL/pgSQL function orders_before_update() line 14 at PERFORM
+LOCATION:  exec_stmt_raise, pl_exec.c:3923
+ROLLBACK;
+
+################ EXTRA 6: an order cannot be marked paid without a captured payment ################
+BEGIN;
+UPDATE orders SET status = 'paid' WHERE id = '0190a000-0000-7000-8005-000000000002';
+psql:proof/30_invalid_inserts.sql:53: ERROR:  DK003: order 0190a000-0000-7000-8005-000000000002 cannot be paid without a captured payment
+CONTEXT:  PL/pgSQL function orders_before_update() line 35 at RAISE
+LOCATION:  exec_stmt_raise, pl_exec.c:3923
+ROLLBACK;
+
+################ EXTRA 7: two live payments for one order ################
+BEGIN;
+INSERT INTO payments (order_id, currency, amount_minor, provider)
+VALUES ('0190a000-0000-7000-8005-000000000002', 'NGN', 3000000, 'paystack');
+INSERT INTO payments (order_id, currency, amount_minor, provider)
+VALUES ('0190a000-0000-7000-8005-000000000002', 'NGN', 3000000, 'paystack');
+psql:proof/30_invalid_inserts.sql:62: ERROR:  23505: duplicate key value violates unique constraint "payments_one_live_per_order"
+DETAIL:  Key (order_id)=(0190a000-0000-7000-8005-000000000002) already exists.
+SCHEMA NAME:  public
+TABLE NAME:  payments
+CONSTRAINT NAME:  payments_one_live_per_order
+LOCATION:  _bt_check_unique, nbtinsert.c:673
+ROLLBACK;
+
+################ EXTRA 8: a payment whose amount is not the order total ################
+BEGIN;
+INSERT INTO payments (order_id, currency, amount_minor, provider)
+VALUES ('0190a000-0000-7000-8005-000000000002', 'NGN', 1, 'paystack');
+psql:proof/30_invalid_inserts.sql:69: ERROR:  DK003: payment amount 1 != order total 3000000
+CONTEXT:  PL/pgSQL function payments_guard() line 10 at RAISE
+LOCATION:  exec_stmt_raise, pl_exec.c:3923
+ROLLBACK;
+
+################ EXTRA 9: an order mixing two sellers (item from Kente Cloth Co in a Lagos Gadgets order) ################
+BEGIN;
+INSERT INTO orders (id, buyer_id, seller_id, currency, shipping_fee_minor, shipping_address_id)
+VALUES ('0190a000-0000-7000-8005-0000000000a9', '0190a000-0000-7000-8000-000000000003',
+        '0190a000-0000-7000-8001-000000000002', 'NGN', 0, '0190a000-0000-7000-8002-000000000003');
+INSERT INTO order_items (order_id, listing_id, quantity)
+VALUES ('0190a000-0000-7000-8005-0000000000a9', '0190a000-0000-7000-8004-000000000001', 1);
+psql:proof/30_invalid_inserts.sql:79: ERROR:  23503: insert or update on table "order_items" violates foreign key constraint "order_items_order_fk"
+DETAIL:  Key (order_id, seller_id, currency)=(0190a000-0000-7000-8005-0000000000a9, 0190a000-0000-7000-8001-000000000001, NGN) is not present in table "orders".
+SCHEMA NAME:  public
+TABLE NAME:  order_items
+CONSTRAINT NAME:  order_items_order_fk
+LOCATION:  ri_ReportViolation, ri_triggers.c:2783
+ROLLBACK;
+
+################ EXTRA 10: a seller buying from their own shop ################
+BEGIN;
+INSERT INTO addresses (id, user_id, recipient_name, line1, city, postal_code, country)
+VALUES ('0190a000-0000-7000-8002-0000000000aa', '0190a000-0000-7000-8000-000000000001', 'Amina', '1 Test St', 'Lagos', '100001', 'NG');
+INSERT INTO orders (buyer_id, seller_id, currency, shipping_address_id)
+VALUES ('0190a000-0000-7000-8000-000000000001', '0190a000-0000-7000-8001-000000000001', 'NGN', '0190a000-0000-7000-8002-0000000000aa');
+psql:proof/30_invalid_inserts.sql:88: ERROR:  DK003: a seller cannot buy from their own shop
+CONTEXT:  PL/pgSQL function orders_before_insert() line 9 at RAISE
+LOCATION:  exec_stmt_raise, pl_exec.c:3923
+ROLLBACK;
+
+################ EXTRA 11: shipping to someone else's address ################
+BEGIN;
+INSERT INTO orders (buyer_id, seller_id, currency, shipping_address_id)
+VALUES ('0190a000-0000-7000-8000-000000000003', '0190a000-0000-7000-8001-000000000002', 'NGN',
+        '0190a000-0000-7000-8002-000000000004');
+psql:proof/30_invalid_inserts.sql:96: ERROR:  23503: insert or update on table "orders" violates foreign key constraint "orders_ship_address_belongs_to_buyer"
+DETAIL:  Key (shipping_address_id, buyer_id)=(0190a000-0000-7000-8002-000000000004, 0190a000-0000-7000-8000-000000000003) is not present in table "addresses".
+SCHEMA NAME:  public
+TABLE NAME:  orders
+CONSTRAINT NAME:  orders_ship_address_belongs_to_buyer
+LOCATION:  ri_ReportViolation, ri_triggers.c:2783
+ROLLBACK;
+
+################ EXTRA 12: money must be positive whole minor units with an ISO currency ################
+BEGIN;
+INSERT INTO listings (seller_id, category_id, title, price_minor, currency, stock_quantity)
+VALUES ('0190a000-0000-7000-8001-000000000001', '0190a000-0000-7000-8003-000000000002', 'Free cloth', 0, 'NGN', 1);
+psql:proof/30_invalid_inserts.sql:103: ERROR:  23514: new row for relation "listings" violates check constraint "listings_price_positive"
+DETAIL:  Failing row contains (01a16fe4-173c-7280-a339-ea61a3b0dee6, 0190a000-0000-7000-8001-000000000001, 0190a000-0000-7000-8003-000000000002, Free cloth, , 0, NGN, 1, draft, 0, 0, 'cloth':2 'free':1, 2026-10-24 22:49:41.563762+01, 2026-10-24 22:49:41.563762+01, null).
+SCHEMA NAME:  public
+TABLE NAME:  listings
+CONSTRAINT NAME:  listings_price_positive
+LOCATION:  ExecConstraints, execMain.c:2081
+ROLLBACK;
+BEGIN;
+INSERT INTO listings (seller_id, category_id, title, price_minor, currency, stock_quantity)
+VALUES ('0190a000-0000-7000-8001-000000000001', '0190a000-0000-7000-8003-000000000002', 'Wrong currency', 1000, 'USD', 1);
+psql:proof/30_invalid_inserts.sql:107: ERROR:  23503: insert or update on table "listings" violates foreign key constraint "listings_seller_currency_fk"
+DETAIL:  Key (seller_id, currency)=(0190a000-0000-7000-8001-000000000001, USD) is not present in table "sellers".
+SCHEMA NAME:  public
+TABLE NAME:  listings
+CONSTRAINT NAME:  listings_seller_currency_fk
+LOCATION:  ri_ReportViolation, ri_triggers.c:2783
+ROLLBACK;
+
+################ EXTRA 13: an order cannot be born already completed ################
+BEGIN;
+INSERT INTO orders (buyer_id, seller_id, status, currency, shipping_address_id)
+VALUES ('0190a000-0000-7000-8000-000000000003', '0190a000-0000-7000-8001-000000000002', 'completed', 'NGN',
+        '0190a000-0000-7000-8002-000000000003');
+psql:proof/30_invalid_inserts.sql:115: ERROR:  DK001: orders must be created as pending_payment, not completed
+CONTEXT:  PL/pgSQL function enforce_initial_status() line 4 at RAISE
+LOCATION:  exec_stmt_raise, pl_exec.c:3923
+ROLLBACK;
+
+################ EXTRA 14: the price on a finished order line is immutable ################
+BEGIN;
+UPDATE order_items SET unit_price_minor = 1 WHERE order_id = '0190a000-0000-7000-8005-000000000001';
+psql:proof/30_invalid_inserts.sql:121: ERROR:  DK002: order_items are immutable once written
+CONTEXT:  PL/pgSQL function order_items_guard() line 5 at RAISE
+LOCATION:  exec_stmt_raise, pl_exec.c:3923
+ROLLBACK;
+
+################ EXTRA 15: the audit trail is append-only ################
+BEGIN;
+DELETE FROM order_events WHERE order_id = '0190a000-0000-7000-8005-000000000001';
+psql:proof/30_invalid_inserts.sql:127: ERROR:  DK002: order_events is append-only
+CONTEXT:  PL/pgSQL function forbid_mutation() line 3 at RAISE
+LOCATION:  exec_stmt_raise, pl_exec.c:3923
+ROLLBACK;
+
+################ EXTRA 16: a second review for the same line ################
+BEGIN;
+INSERT INTO reviews (order_id, order_item_id, listing_id, buyer_id, rating)
+SELECT oi.order_id, oi.id, oi.listing_id, '0190a000-0000-7000-8000-000000000003', 1
+  FROM order_items oi
+ WHERE oi.order_id = '0190a000-0000-7000-8005-000000000001'
+   AND oi.listing_id = '0190a000-0000-7000-8004-000000000001';
+psql:proof/30_invalid_inserts.sql:137: ERROR:  23505: duplicate key value violates unique constraint "reviews_one_per_item"
+DETAIL:  Key (order_item_id)=(01a16fe1-1c47-7dc0-8b4f-152db4a8d50a) already exists.
+SCHEMA NAME:  public
+TABLE NAME:  reviews
+CONSTRAINT NAME:  reviews_one_per_item
+LOCATION:  _bt_check_unique, nbtinsert.c:673
+ROLLBACK;
